@@ -8,6 +8,7 @@
 #include <MQTT_AutomationConditionSensor.h>
 #include <MQTT_AutomationConditionSensorX.h>
 #include <MQTT_AutomationConditionTimer.h>
+#include <MQTT_AutomationConditionDate.h>
 
 #include <stdlib.h>
 //Formulare
@@ -45,6 +46,7 @@ String newEntryForm = "["
 "{'v':'"+String(AUTO_TYPE_AAA)+"','l':'Analog-Aktion'},"
 "{'v':'"+String(AUTO_TYPE_AADM)+"','l':'Dimmer-Aktion'},"
 "{'v':'"+String(AUTO_TYPE_ACT)+"','l':'Timer-Bedingung'},"
+"{'v':'"+String(AUTO_TYPE_ACD)+"','l':'Datum-Bedingung'},"
 "{'v':'"+String(AUTO_TYPE_ACS)+"','l':'Sensor Bedingung'},"
 "{'v':'"+String(AUTO_TYPE_ACSX)+"','l':'erw. Sensor-Bedingung'}"
 "]"
@@ -185,6 +187,7 @@ void MQTT_Automation::endForm(String data) {
             case AUTO_TYPE_AAD:
             case AUTO_TYPE_AADM: addAction(type,name,&_rules[_curRule]); break;
             case AUTO_TYPE_ACT:
+            case AUTO_TYPE_ACD:
             case AUTO_TYPE_ACS:
             case AUTO_TYPE_ACSX: addCondition(type,name,&_rules[_curRule]); break;
           }
@@ -279,7 +282,7 @@ bool MQTT_Automation::saveRules(){
   File f = SPIFFS.open(AUTO_RULES_FILENAME,"w");
   if (f) {
     StaticJsonDocument<300> tmp;
-    DynamicJsonDocument doc(4096);
+    DynamicJsonDocument doc(32768);
     Serial.println("Start rules");
     for (uint8_t i = 0; i<_rulecount; i++) {
       Serial.printf("rule %i\n",i);
@@ -335,7 +338,9 @@ bool MQTT_Automation::readRules() {
     StaticJsonDocument<300> tmp;
     char buf[300];
     Serial.println("Read rules");
-    DynamicJsonDocument doc(4096);
+    uint16_t sz = f.size() * 4;
+    Serial.println(sz);
+    DynamicJsonDocument doc(sz);
     deserializeJson(doc,f);
     f.close();
     JsonArray rules = doc.as<JsonArray>();
@@ -583,6 +588,8 @@ void MQTT_Automation::addCondition(uint8_t type, const char name[],AUTO_RULE_STR
       case AUTO_TYPE_ACSX: rule->conditions[ix]=new MQTT_AutomationConditionSensorX(name);
         break;
       case AUTO_TYPE_ACT: rule->conditions[ix]=new MQTT_AutomationConditionTimer(name);
+        break;
+      case AUTO_TYPE_ACD: rule->conditions[ix]=new MQTT_AutomationConditionDate(name);
         break;
       default: rule->conditionCnt--;
     }

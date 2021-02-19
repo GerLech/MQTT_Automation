@@ -4,10 +4,11 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
-#define MAX_CONDITION_TYPES 13
+#define MAX_CONDITION_TYPES 14
 #define AUTO_TYPE_ACS 10
 #define AUTO_TYPE_ACSX 11
 #define AUTO_TYPE_ACT 12
+#define AUTO_TYPE_ACD 13
 
 
 #define AUTO_COMP_EQUAL 0

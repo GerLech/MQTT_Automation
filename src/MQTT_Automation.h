@@ -1,3 +1,4 @@
+//Version 1.1
 #ifndef MQTT_Automation_h
 #define MQTT_Automation_h
 
