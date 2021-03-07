@@ -104,41 +104,38 @@ uint8_t MQTT_AutomationConditionDate::checkCondition() {
   uint8_t result = AUTO_CONDITION_FALSE;
   if(getLocalTime(&ti)){
     uint8_t day = 0;
+    uint8_t mday = ti.tm_mday;
     uint8_t mon = ti.tm_mon+1;
+    uint16_t ysdays = dayOfTheYear(ti.tm_year,_startMonth,_startDay);
+    uint16_t yedays = dayOfTheYear(ti.tm_year,_endMonth,_endDay);
+    Serial.printf("%i bis %i = %i\n",ysdays,yedays,ti.tm_yday);
     boolean valid = false;
-    Serial.printf("Heute %i.%i Beginn %i.%i Ende %i.%i \n",ti.tm_mday,mon,_startDay,_startMonth,_endDay,_endMonth);
-    if (_startMonth < _endMonth) {
-      if ((mon > _startMonth) && (mon < _endMonth)) {
-        valid = true;
-        Serial.println("Monat gültig");
+    //Serial.printf("Heute %i.%i Beginn %i.%i Ende %i.%i \n",ti.tm_mday,mon,_startDay,_startMonth,_endDay,_endMonth);
+    if (ysdays <= yedays) {
+      //Bereich im geleichen Jahr
+      valid = ((mon > _startMonth) && (mon < _endMonth));
+      if ((mon == _startMonth)||(mon == _endMonth)) {
+        if ((ti.tm_yday>=ysdays) && (ti.tm_yday <= yedays)) valid = true;
       }
     } else {
-      if ((mon < _endMonth) || (mon > _startMonth)) {
-        valid = true;
-        Serial.println("Monat gültig");
+      valid =((mon < _startMonth) || (mon > _endMonth));
+      if (mon == _startMonth) {
+        if (ti.tm_yday <= ysdays) valid = true;
       }
-    }
-    if ((mon == _startMonth) && (ti.tm_mday >= _startDay) && (ti.tm_mday <= _endDay)) {
-      valid = true;
-      Serial.println("Starttag gültig");
-    }
-    if ((mon == _endMonth) &&  (ti.tm_mday >= _startDay) && (ti.tm_mday <= _endDay)) {
-      valid = true;
-      Serial.println("Endtag gültig");
+      if (mon == _endMonth) {
+        if (ti.tm_yday >= yedays) valid = true;
+      }
     }
     if (valid) {
       if (_everyMDay > 0) { //the n-th day in a month should be used
-        Serial.println("Tag im Monat");
         if (_everyMDay == 32) { //last day in the month
           uint8_t day = mdays[ti.tm_mon];
           if (leapYear(ti.tm_year)) day++;
-          Serial.println("Letzter gültig");
         } else {
           day=_everyMDay;
         }
         if (ti.tm_mday == day) result = AUTO_CONDITION_TRUE;
       } else {
-        Serial.println("Tag im Jahr");
         //we use every n-th day
         uint16_t sd = (_startMonth > mon)?dayOfTheYear(ti.tm_year-1,_startMonth,_startDay):dayOfTheYear(ti.tm_year,_startMonth,_startDay);
         int16_t delta = ti.tm_yday - sd;
@@ -153,9 +150,9 @@ uint8_t MQTT_AutomationConditionDate::checkCondition() {
 uint16_t MQTT_AutomationConditionDate::dayOfTheYear(uint16_t y, uint8_t m, uint8_t d) {
   uint16_t res = d;
   if (m < 3) {
-    res = (m==2)?d+31:d;
+    res = (m==2)?d+30:d-1;
   } else {
-    res = d+(153 * m -162)/5;
+    res = d-1+(153 * m -162)/5;
     if (leapYear(y)) res++;
   }
   return res;
