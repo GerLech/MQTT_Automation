@@ -108,7 +108,7 @@ uint8_t MQTT_AutomationConditionDate::checkCondition() {
     uint8_t mon = ti.tm_mon+1;
     uint16_t ysdays = dayOfTheYear(ti.tm_year,_startMonth,_startDay);
     uint16_t yedays = dayOfTheYear(ti.tm_year,_endMonth,_endDay);
-    Serial.printf("%i bis %i = %i\n",ysdays,yedays,ti.tm_yday);
+    //Serial.printf("%i bis %i = %i\n",ysdays,yedays,ti.tm_yday);
     boolean valid = false;
     //Serial.printf("Heute %i.%i Beginn %i.%i Ende %i.%i \n",ti.tm_mday,mon,_startDay,_startMonth,_endDay,_endMonth);
     if (ysdays <= yedays) {
