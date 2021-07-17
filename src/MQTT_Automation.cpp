@@ -412,7 +412,23 @@ bool MQTT_Automation::deleteEntry(uint8_t index){
 
 }
 
+void MQTT_Automation::mqttConfig(char cmd[], int16_t ruleId, int16_t elementId, char data[] ){
+  Serial.printf ("Config cmd = %s rule = %i  element = %i  data = %s\n",cmd,ruleId,elementId,data);
+  if ((strcmp(cmd,"getrulelist")==0) && _onPublish ) publishRuleList();
+}
+
+
 //******************************** private **********************
+
+void MQTT_Automation::publishRuleList() {
+  char buf[1000];
+  DynamicJsonDocument doc(1000);
+  JsonArray array = doc.to<JsonArray>();
+  for (uint8_t i = 0; i < _rulecount; i++) array.add(_rules[i].name);
+  serializeJson(doc,buf);
+  Serial.println(buf);
+  _onPublish("confs/%s/rulelist",buf);
+}
 
 void MQTT_Automation::showPage() {
   _tft->fillScreen(ILI9341_WHITE);

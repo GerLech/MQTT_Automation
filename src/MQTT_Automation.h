@@ -72,6 +72,7 @@ class MQTT_Automation {
     bool saveRules();
     bool readRules();
     bool deleteEntry(uint8_t index);
+    void mqttConfig(char cmd[], int16_t ruleId, int16_t elementId, char data[] );
   private:
     void showPage();
     void alignText(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t alignment, String text, bool intFont);
@@ -85,6 +86,7 @@ class MQTT_Automation {
     void clearActions(uint8_t rule);
     void clearRules();
     void deleteRule(uint8_t index);
+    void publishRuleList();
     AUTO_RULE_STRUCT _rules[AUTO_MAX_RULES];
     uint8_t _curPage;
     int8_t _curRule;
