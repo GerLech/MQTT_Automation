@@ -1,3 +1,4 @@
+//version 1.5
 #include <MQTT_Automation.h>
 #include <AutomationLayout.h>
 #include <ArduinoJson.h>
@@ -62,12 +63,14 @@ MQTT_Automation::MQTT_Automation(Adafruit_ILI9341 * tft, TFTForm * conf, const G
 
 void MQTT_Automation::init() {
   _rulecount = 0;
+  _configActive = false;
   readRules();
 }
 
 void MQTT_Automation::showConfig(){
   _curPage = AUTO_PAGE_MAIN;
   _ruleoffset = 0;
+  _configActive = true;
   showPage();
 }
 
@@ -85,6 +88,7 @@ void MQTT_Automation::handleClick(int16_t x, int16_t y) {
           showPage();
           break;
         case 1: if (_onDone) _onDone();
+          _configActive = false;
           saveRules();
           break;
         case 2:
@@ -112,7 +116,7 @@ void MQTT_Automation::handleClick(int16_t x, int16_t y) {
     //Rule Page
     if (line==0) {
       _conf->setDescription(ruleForm);
-      _conf->setValues(getRuleProperties());
+      _conf->setValues(getRuleProperties(_curRule));
       _curForm = AUTO_FORM_RULE;
       _conf->showForm();
     } else if (line == 15){
@@ -281,40 +285,12 @@ void MQTT_Automation::refresh(){
 bool MQTT_Automation::saveRules(){
   File f = SPIFFS.open(AUTO_RULES_FILENAME,"w");
   if (f) {
-    StaticJsonDocument<300> tmp;
     DynamicJsonDocument doc(32768);
     Serial.println("Start rules");
     for (uint8_t i = 0; i<_rulecount; i++) {
       Serial.printf("rule %i\n",i);
       JsonObject rule = doc.createNestedObject();
-      AUTO_RULE_STRUCT * r = &_rules[i];
-      rule["name"] = r->name;
-      rule["disabled"] = r->disabled?1:0;
-      rule["conditionCnt"] = r->conditionCnt;
-      rule["actionCnt"] = r->actionCnt;
-      r->status = AUTO_RULE_INVALID;
-      JsonArray conds = rule.createNestedArray("conditions");
-      Serial.println("conditions");
-      for (uint8_t j = 0; j<r->conditionCnt; j++) {
-        deserializeJson(tmp,r->conditions[j]->getProperties());
-        Serial.printf("condition %i\n",j);
-        JsonObject tmpo = tmp.as<JsonObject>();
-        JsonObject c = conds.createNestedObject();
-        for (JsonPair kv : tmpo){
-          c[kv.key()] = kv.value();
-        }
-      }
-      JsonArray actions = rule.createNestedArray("actions");
-      Serial.println("actions");
-      for (uint8_t j = 0; j<r->actionCnt; j++) {
-        deserializeJson(tmp,r->actions[j]->getProperties());
-        Serial.printf("condition %i\n",j);
-        JsonObject tmpo = tmp.as<JsonObject>();
-        JsonObject c = actions.createNestedObject();
-        for (JsonPair kv : tmpo){
-          c[kv.key()] = kv.value();
-        }
-      }
+      ruleJSON(&_rules[i],rule);
     }
     uint16_t n = serializeJson(doc,f);
     f.close();
@@ -335,8 +311,6 @@ bool MQTT_Automation::readRules() {
   File f = SPIFFS.open(AUTO_RULES_FILENAME,"r");
   if (f) {
     AUTO_RULE_STRUCT * rp;
-    StaticJsonDocument<300> tmp;
-    char buf[300];
     Serial.println("Read rules");
     uint16_t sz = f.size() * 4;
     Serial.println(sz);
@@ -348,40 +322,7 @@ bool MQTT_Automation::readRules() {
       JsonObject r = v.as<JsonObject>();
       rp = &_rules[_rulecount];
       _rulecount++;
-      if (r.containsKey("name")) strlcpy(rp->name,r["name"],15);
-      if (r.containsKey("disabled")) rp->disabled = (r["disabled"] != 0);
-      if (r.containsKey("conditions")) {
-        JsonArray conds = r["conditions"].as<JsonArray>();
-        for (JsonVariant c : conds) {
-          JsonObject co = c.as<JsonObject>();
-          tmp.clear();
-          for (JsonPair kv : co) {
-            tmp[kv.key()] = kv.value();
-          }
-          serializeJson(tmp,buf);
-          uint8_t ix = rp->conditionCnt;
-          if (tmp["type"] < MAX_CONDITION_TYPES) {
-            addCondition(tmp["type"],tmp["name"],rp);
-            rp->conditions[ix]->update(String(buf));
-          }
-        }
-      }
-      if (r.containsKey("actions")) {
-        JsonArray acts = r["actions"].as<JsonArray>();
-        for (JsonVariant a : acts) {
-          JsonObject ao = a.as<JsonObject>();
-          tmp.clear();
-          for (JsonPair kv : ao) {
-            tmp[kv.key()] = kv.value();
-          }
-          serializeJson(tmp,buf);
-          uint8_t ix = rp->actionCnt;
-          if (tmp["type"] < MAX_ACTION_TYPES) {
-            addAction(tmp["type"],tmp["name"],rp);
-            rp->actions[ix]->update(String(buf));
-          }
-        }
-      }
+      updateRule(rp,r);
     }
     return true;
   } else {
@@ -391,17 +332,58 @@ bool MQTT_Automation::readRules() {
 
 }
 
+void MQTT_Automation::updateRule(AUTO_RULE_STRUCT * rp, JsonObject r) {
+  StaticJsonDocument<300> tmp;
+  char buf[300];
+  if (r.containsKey("name")) strlcpy(rp->name,r["name"],15);
+  if (r.containsKey("disabled")) rp->disabled = (r["disabled"] != 0);
+  if (r.containsKey("conditions")) {
+    JsonArray conds = r["conditions"].as<JsonArray>();
+    for (JsonVariant c : conds) {
+      JsonObject co = c.as<JsonObject>();
+      tmp.clear();
+      for (JsonPair kv : co) {
+        tmp[kv.key()] = kv.value();
+      }
+      serializeJson(tmp,buf);
+      uint8_t ix = rp->conditionCnt;
+      if (tmp["type"] < MAX_CONDITION_TYPES) {
+        addCondition(tmp["type"],tmp["name"],rp);
+        rp->conditions[ix]->update(String(buf));
+      }
+    }
+  }
+  if (r.containsKey("actions")) {
+    JsonArray acts = r["actions"].as<JsonArray>();
+    for (JsonVariant a : acts) {
+      JsonObject ao = a.as<JsonObject>();
+      tmp.clear();
+      for (JsonPair kv : ao) {
+        tmp[kv.key()] = kv.value();
+      }
+      serializeJson(tmp,buf);
+      uint8_t ix = rp->actionCnt;
+      if (tmp["type"] < MAX_ACTION_TYPES) {
+        addAction(tmp["type"],tmp["name"],rp);
+        rp->actions[ix]->update(String(buf));
+      }
+    }
+  }
+}
+
 bool MQTT_Automation::deleteEntry(uint8_t index){
   if (_curPage == AUTO_PAGE_RULE) {
     AUTO_RULE_STRUCT * r = &_rules[_curRule];
     if (_curForm == AUTO_FORM_CONDITION) {
       if (_curCondition < r->conditionCnt) {
+        delete(r->conditions[_curCondition]);
         r->conditionCnt--;
         for (uint8_t i = _curCondition; i<r->conditionCnt; i++) r->conditions[i] = r->conditions[i+1];
       }
     }
     if (_curForm == AUTO_FORM_ACTION) {
       if (_curAction < r->actionCnt) {
+        delete(r->actions[_curAction]);
         r->actionCnt--;
         for (uint8_t i = _curAction; i<r->actionCnt; i++) r->actions[i] = r->actions[i+1];
       }
@@ -412,13 +394,116 @@ bool MQTT_Automation::deleteEntry(uint8_t index){
 
 }
 
-void MQTT_Automation::mqttConfig(char cmd[], int16_t ruleId, int16_t elementId, char data[] ){
+void MQTT_Automation::mqttConfig(char cmd[], int16_t ruleId, int16_t elementId, const char data[] ){
   Serial.printf ("Config cmd = %s rule = %i  element = %i  data = %s\n",cmd,ruleId,elementId,data);
-  if ((strcmp(cmd,"getrulelist")==0) && _onPublish ) publishRuleList();
+  if ((strcmp(cmd,"getrulelist")==0) && _onPublish ) {publishRuleList(); return;}
+  if ((strcmp(cmd,"getrule")==0) && _onPublish ) {publishRule(data); return;}
+  if (_configActive) {
+    if (_onPublish) _onPublish("confs/%s/error","Command not allowed, configuration is active");
+  } else {
+    if (strcmp(cmd,"updaterule")==0) updateRuleConf(ruleId,data);
+    if (strcmp(cmd,"deleterule")==0) deleteRuleConf(data);
+  }
+}
+
+void MQTT_Automation::updateRuleConf(int16_t ruleId, const char data[]) {
+  AUTO_RULE_STRUCT * rp;
+  if ((ruleId >= 0) && (ruleId < AUTO_MAX_RULES)) {
+    DynamicJsonDocument doc(32768);
+    DeserializationError   error = deserializeJson(doc,data);
+    if (error ) {
+      Serial.println("JSON update rule: ");
+      Serial.println(error.c_str());
+    }
+
+    JsonObject r = doc.as<JsonObject>();
+    int16_t ccnt = -1;
+    if (ruleId >= _rulecount) {
+      rp = &_rules[_rulecount];
+      _rulecount++;
+      Serial.println("Rule added!");
+    } else {
+      rp = &_rules[ruleId];
+      clearActions(ruleId);
+      clearConditions(ruleId);
+    }
+    updateRule(rp,r);
+    saveRules();
+  }
+}
+
+void MQTT_Automation::deleteRuleConf(const char rulename[]) {
+   int8_t index = findRule(rulename);
+   if (index >= 0) {
+     clearActions(index);
+     clearConditions(index);
+     if (index < _rulecount) {
+       _rulecount--;
+       for (uint8_t i = index; i<_rulecount; i++) _rules[i] = _rules[i+1];
+     }
+     saveRules();
+   }
+}
+
+int8_t MQTT_Automation::findRule(const char rulename[])
+{
+  int8_t i = _rulecount;
+  while ((i >= 0) && (strcmp(_rules[i].name,rulename) != 0)) i--;
+  return i;
+}
+
+String MQTT_Automation::getRuleJSON(const char rulename[]) {
+  int8_t i = findRule(rulename);
+  if (i < 0) {
+    return "";
+  } else {
+    DynamicJsonDocument doc(32768);
+    JsonObject rule = doc.to<JsonObject>();
+    ruleJSON(&_rules[i],rule);
+    String result = "";
+    uint16_t n=serializeJson(doc,result);
+    return result;
+  }
 }
 
 
 //******************************** private **********************
+
+void MQTT_Automation::ruleJSON(AUTO_RULE_STRUCT * r, JsonObject rule) {
+  StaticJsonDocument<300> tmp;
+  rule["name"] = r->name;
+  rule["disabled"] = r->disabled?1:0;
+  rule["conditionCnt"] = r->conditionCnt;
+  rule["actionCnt"] = r->actionCnt;
+  r->status = AUTO_RULE_INVALID;
+  JsonArray conds = rule.createNestedArray("conditions");
+  Serial.println("conditions");
+  for (uint8_t j = 0; j<r->conditionCnt; j++) {
+    deserializeJson(tmp,r->conditions[j]->getProperties());
+    Serial.printf("condition %i\n",j);
+    JsonObject tmpo = tmp.as<JsonObject>();
+    JsonObject c = conds.createNestedObject();
+    for (JsonPair kv : tmpo){
+      c[kv.key()] = kv.value();
+    }
+  }
+  JsonArray actions = rule.createNestedArray("actions");
+  Serial.println("actions");
+  for (uint8_t j = 0; j<r->actionCnt; j++) {
+    deserializeJson(tmp,r->actions[j]->getProperties());
+    Serial.printf("action %i\n",j);
+    JsonObject tmpo = tmp.as<JsonObject>();
+    JsonObject c = actions.createNestedObject();
+    for (JsonPair kv : tmpo){
+      c[kv.key()] = kv.value();
+    }
+  }
+}
+
+void MQTT_Automation::publishRule(const char rulename[]) {
+   String tmp = getRuleJSON(rulename);
+   if (tmp != "") _onPublish("confs/%s/rule",tmp.c_str());
+}
 
 void MQTT_Automation::publishRuleList() {
   char buf[1000];
@@ -568,16 +653,16 @@ String MQTT_Automation::encodeUnicode(String text, bool intern){
   return res;
 }
 
-
-String MQTT_Automation::getRuleProperties(){
+String MQTT_Automation::getRuleProperties(uint8_t index){
   StaticJsonDocument<200> doc;
-  doc["name"]=_rules[_curRule].name;
-  doc["disabled"]=_rules[_curRule].disabled?1:0;
+  doc["name"]=_rules[index].name;
+  doc["disabled"]=_rules[index].disabled?1:0;
   char buf[100];
   uint16_t n=serializeJson(doc,buf);
   buf[n]=0;
   return String(buf);
 }
+
 
 void MQTT_Automation::addAction(uint8_t type, const char name[],AUTO_RULE_STRUCT * rule){
   if (rule->actionCnt < AUTO_MAX_ACTIONS) {
@@ -637,6 +722,8 @@ void MQTT_Automation::clearRules() {
 
 void MQTT_Automation::deleteRule(uint8_t index){
   if (index < _rulecount) {
+    clearActions(index);
+    clearConditions(index);
     _rulecount--;
     for (uint8_t i = index; i<_rulecount; i++) _rules[i] = _rules[i+1];
   }

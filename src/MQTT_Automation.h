@@ -1,4 +1,4 @@
-//Version 1.1
+//Version 1.5
 #ifndef MQTT_Automation_h
 #define MQTT_Automation_h
 
@@ -72,14 +72,15 @@ class MQTT_Automation {
     bool saveRules();
     bool readRules();
     bool deleteEntry(uint8_t index);
-    void mqttConfig(char cmd[], int16_t ruleId, int16_t elementId, char data[] );
+    int8_t findRule(const char rulename[]);
+    String getRuleJSON(const char rulename[]);
+    void mqttConfig(char cmd[], int16_t ruleId, int16_t elementId, const char data[]);
   private:
     void showPage();
     void alignText(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t alignment, String text, bool intFont);
     void showRoundedBox(uint16_t x, uint16_t y, uint16_t w, uint16_t h, String text,AUTOSTYLE style);
     void showBox(uint16_t x, uint16_t y, uint16_t w, uint16_t h, String text, bool withoutBox, AUTOSTYLE style);
     String encodeUnicode(String text, bool intern);
-    String getRuleProperties();
     void addAction(uint8_t type, const char name[],AUTO_RULE_STRUCT * rule);
     void addCondition(uint8_t type, const char name[],AUTO_RULE_STRUCT * rule);
     void clearConditions(uint8_t rule);
@@ -87,7 +88,14 @@ class MQTT_Automation {
     void clearRules();
     void deleteRule(uint8_t index);
     void publishRuleList();
+    void publishRule(const char rulename[]);
+    String getRuleProperties(uint8_t index);
+    void ruleJSON(AUTO_RULE_STRUCT * r, JsonObject rule);
+    void updateRule(AUTO_RULE_STRUCT * rp, JsonObject r);
+    void updateRuleConf(int16_t ruleId, const char data[]);
+    void deleteRuleConf(const char rulename[]);
     AUTO_RULE_STRUCT _rules[AUTO_MAX_RULES];
+    boolean _configActive;
     uint8_t _curPage;
     int8_t _curRule;
     uint8_t _curForm;
