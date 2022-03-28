@@ -4,12 +4,12 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
-#define MAX_CONDITION_TYPES 14
+#define MAX_CONDITION_TYPES 15
 #define AUTO_TYPE_ACS 10
 #define AUTO_TYPE_ACSX 11
 #define AUTO_TYPE_ACT 12
 #define AUTO_TYPE_ACD 13
-
+#define AUTO_TYPE_ACST 14
 
 #define AUTO_COMP_EQUAL 0
 #define AUTO_COMP_LESS 1
@@ -35,7 +35,7 @@ class MQTT_AutomationCondition {
     virtual String getForm() = 0;
     virtual String getProperties() = 0;
     virtual String getName() {return String(_name);};
-    virtual uint8_t checkCondition() {return AUTO_CONDITION_INVALID;};
+    virtual uint8_t checkCondition(uint16_t sunrise, uint16_t sundown) {return AUTO_CONDITION_INVALID;};
     virtual void updateValue(const char topic [],const char data[]) {};
 };
 

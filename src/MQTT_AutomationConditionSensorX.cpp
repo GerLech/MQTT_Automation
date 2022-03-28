@@ -108,7 +108,7 @@ String MQTT_AutomationConditionSensorX::getProperties(){
   return String(buf);
 }
 
-uint8_t MQTT_AutomationConditionSensorX::checkCondition() {
+uint8_t MQTT_AutomationConditionSensorX::checkCondition(uint16_t sunrise, uint16_t sundown) {
   if (_valid1 && _valid2) {
     float c1 = _value2;
     switch (_mathOperator) {

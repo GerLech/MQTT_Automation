@@ -11,7 +11,7 @@ class MQTT_AutomationConditionDate : public MQTT_AutomationCondition {
     void update(String data);
     String getForm();
     String getProperties();
-    uint8_t checkCondition();
+    uint8_t checkCondition(uint16_t sunrise, uint16_t sundown);
   private:
     uint16_t dayOfTheYear(uint16_t y, uint8_t m, uint8_t d);
     boolean leapYear(uint16_t y);

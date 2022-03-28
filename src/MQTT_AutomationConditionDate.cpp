@@ -99,7 +99,7 @@ String MQTT_AutomationConditionDate::getProperties(){
   return String(buf);
 }
 
-uint8_t MQTT_AutomationConditionDate::checkCondition() {
+uint8_t MQTT_AutomationConditionDate::checkCondition(uint16_t sunrise, uint16_t sundown) {
   struct tm ti;
   uint8_t result = AUTO_CONDITION_FALSE;
   if(getLocalTime(&ti)){

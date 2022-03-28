@@ -11,7 +11,7 @@ class MQTT_AutomationConditionSensor  : public MQTT_AutomationCondition {
     void update(String data);
     String getForm();
     String getProperties();
-    uint8_t checkCondition();
+    uint8_t checkCondition(uint16_t sunrise, uint16_t sundown);
     void updateValue(const char topic [],const char data[]);
   private:
     char _topic[128] = "";

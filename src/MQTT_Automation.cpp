@@ -1,4 +1,4 @@
-//version 1.5
+//version 1.6
 #include <MQTT_Automation.h>
 #include <AutomationLayout.h>
 #include <ArduinoJson.h>
@@ -10,6 +10,7 @@
 #include <MQTT_AutomationConditionSensorX.h>
 #include <MQTT_AutomationConditionTimer.h>
 #include <MQTT_AutomationConditionDate.h>
+#include <MQTT_AutomationConditionSunTime.h>
 
 #include <stdlib.h>
 //Formulare
@@ -47,6 +48,7 @@ String newEntryForm = "["
 "{'v':'"+String(AUTO_TYPE_AAA)+"','l':'Analog-Aktion'},"
 "{'v':'"+String(AUTO_TYPE_AADM)+"','l':'Dimmer-Aktion'},"
 "{'v':'"+String(AUTO_TYPE_ACT)+"','l':'Timer-Bedingung'},"
+"{'v':'"+String(AUTO_TYPE_ACST)+"','l':'Sonnen-Bedingung'},"
 "{'v':'"+String(AUTO_TYPE_ACD)+"','l':'Datum-Bedingung'},"
 "{'v':'"+String(AUTO_TYPE_ACS)+"','l':'Sensor Bedingung'},"
 "{'v':'"+String(AUTO_TYPE_ACSX)+"','l':'erw. Sensor-Bedingung'}"
@@ -65,6 +67,13 @@ void MQTT_Automation::init() {
   _rulecount = 0;
   _configActive = false;
   readRules();
+}
+
+void MQTT_Automation::setCoordinates(double lon, double lat){
+  _lon = lon;
+  _lat = lat;
+  _hasCoordinates = true;
+  calculateSun(true);
 }
 
 void MQTT_Automation::showConfig(){
@@ -191,6 +200,7 @@ void MQTT_Automation::endForm(String data) {
             case AUTO_TYPE_AAD:
             case AUTO_TYPE_AADM: addAction(type,name,&_rules[_curRule]); break;
             case AUTO_TYPE_ACT:
+            case AUTO_TYPE_ACST:
             case AUTO_TYPE_ACD:
             case AUTO_TYPE_ACS:
             case AUTO_TYPE_ACSX: addCondition(type,name,&_rules[_curRule]); break;
@@ -229,6 +239,7 @@ void MQTT_Automation::updateTopic(char topic[], const char data[]){
 
 void MQTT_Automation::refresh(){
   if ((millis()-_lts)>100) {
+    calculateSun(false); // calculate sunrise and sundown if required
     _lts = millis();
     uint8_t j;
     uint8_t res;
@@ -240,7 +251,7 @@ void MQTT_Automation::refresh(){
       if (!rp->disabled) {
         j=0; valid=true; on=true;
         while ((j<rp->conditionCnt) && valid && on){
-          res = rp->conditions[j]->checkCondition();
+          res = rp->conditions[j]->checkCondition(_sunrise,_sundown);
           if (res==AUTO_CONDITION_INVALID) valid = false;
           if (res==AUTO_CONDITION_FALSE) on=false;
           j++;
@@ -313,6 +324,7 @@ bool MQTT_Automation::readRules() {
     AUTO_RULE_STRUCT * rp;
     Serial.println("Read rules");
     uint16_t sz = f.size() * 4;
+    if (sz < 1000) sz = 1000;
     Serial.println(sz);
     DynamicJsonDocument doc(sz);
     deserializeJson(doc,f);
@@ -333,8 +345,8 @@ bool MQTT_Automation::readRules() {
 }
 
 void MQTT_Automation::updateRule(AUTO_RULE_STRUCT * rp, JsonObject r) {
-  StaticJsonDocument<300> tmp;
-  char buf[300];
+  StaticJsonDocument<500> tmp;
+  char buf[500];
   if (r.containsKey("name")) strlcpy(rp->name,r["name"],15);
   if (r.containsKey("disabled")) rp->disabled = (r["disabled"] != 0);
   if (r.containsKey("conditions")) {
@@ -347,13 +359,14 @@ void MQTT_Automation::updateRule(AUTO_RULE_STRUCT * rp, JsonObject r) {
       }
       serializeJson(tmp,buf);
       uint8_t ix = rp->conditionCnt;
-      if (tmp["type"] < MAX_CONDITION_TYPES) {
+      if (tmp.containsKey("type") && (tmp["type"] < MAX_CONDITION_TYPES)) {
         addCondition(tmp["type"],tmp["name"],rp);
         rp->conditions[ix]->update(String(buf));
       }
     }
   }
   if (r.containsKey("actions")) {
+    Serial.println("Load Actions");
     JsonArray acts = r["actions"].as<JsonArray>();
     for (JsonVariant a : acts) {
       JsonObject ao = a.as<JsonObject>();
@@ -363,7 +376,7 @@ void MQTT_Automation::updateRule(AUTO_RULE_STRUCT * rp, JsonObject r) {
       }
       serializeJson(tmp,buf);
       uint8_t ix = rp->actionCnt;
-      if (tmp["type"] < MAX_ACTION_TYPES) {
+      if (tmp.containsKey("type") && (tmp["type"] < MAX_ACTION_TYPES)) {
         addAction(tmp["type"],tmp["name"],rp);
         rp->actions[ix]->update(String(buf));
       }
@@ -466,8 +479,92 @@ String MQTT_Automation::getRuleJSON(const char rulename[]) {
   }
 }
 
+uint16_t MQTT_Automation::getSunrise(){
+  return _sunrise;
+}
+
+uint16_t MQTT_Automation::getSundown(){
+  return _sundown;
+}
+
+void MQTT_Automation::calculateSun(boolean force) {
+  time_t now;
+  tm tl,tu;
+  time(&now);
+  localtime_r(&now, &tl);
+  if (tl.tm_year == 70) return; //no valid date timeEvent
+  double jul = getJulianDate(tl.tm_year+1900, tl.tm_mon+1, tl.tm_mday);
+  //sunrise and sundown will be calculated if not exists or a new day has started
+  if (((jul > _julianDate) || (_sunrise == 0) || force) && _hasCoordinates) {
+    _julianDate = jul;
+    double jd2000 = 2451545.0;
+    gmtime_r(&now, &tu);
+    double julDay= (jul - jd2000) / 36525.0;
+    double dk;
+    double h = -50.0 / 60.0 * _rad;
+    double b = _lat * _rad;
+    double zz = (tl.tm_hour * 60.0 + tl.tm_min - tu.tm_hour * 60.0 - tu.tm_min) /60.0;
+    double te = timeEquation(dk, julDay);
+    double timeDiff = 12.0 * acos((sin(h) - sin(b) * sin(dk)) /(cos(b) * cos(dk))) / _pi;
+    double riseOT = 12.0 - timeDiff - te;
+    double downOT = 12.0 + timeDiff - te;
+    double riseWT = riseOT - _lon / 15.0;
+    double downWT = downOT - _lon / 15.0;
+    double sr = riseWT + zz;
+    if (sr < 0.0) sr += 24.0;
+    if (sr > 24.0) sr -= 24.0;
+    double sd = downWT + zz;
+    if (sd < 0.0) sd += 24.0;
+    if (sd > 24.0) sd -= 24.0;
+    _sunrise = round(sr * 60.0);
+    _sundown = round(sd * 60.0);
+  }
+}
+
 
 //******************************** private **********************
+
+double MQTT_Automation::getJulianDate(uint16_t year, uint8_t month, uint8_t day){
+  int   g;
+  if (month <= 2)  {
+    month += 12;
+    year -= 1;
+  }
+  g = (year / 400) - (year / 100) + (year / 4); //honor leap years
+  return 2400000.5 + 365.0 * year - 679004.0 + g
+         + int(30.6001 * (month + 1)) + day + 0.5;
+}
+
+double MQTT_Automation::timeEquation(double &dk, double jDay){
+  double ra_avg = 18.71506921 + 2400.0513369 * jDay + (2.5862e-5 - 1.72e-9 * jDay) * jDay * jDay;
+  double m  = inPi(_pi2 * (0.993133 + 99.997361 * jDay));
+  double l  = inPi(_pi2 * (  0.7859453 + m / _pi2 + (6893.0 * sin(m) + 72.0 * sin(2.0 * m) + 6191.2 * jDay) / 1296.0e3));
+  double e = getInclination(jDay);
+  double ra = atan(tan(l) * cos(e));
+  if (ra < 0.0) ra += _pi;
+  if (l > _pi) ra += _pi;
+  ra = 24.0 * ra / _pi2;
+  dk = asin(sin(e) * sin(l));
+  // 0<=ra_avg<24
+  ra_avg = 24.0 * inPi(_pi2 * ra_avg / 24.0) / _pi2;
+  double dra = ra_avg - ra;
+  if (dra < -12.0) dra += 24.0;
+  if (dra > 12.0) dra -= 24.0;
+  dra = dra * 1.0027379;
+  return dra ;
+}
+
+double MQTT_Automation::inPi(double x){
+  int n = (int)(x / _pi2);
+  x = x - n * _pi2;
+  if (x < 0) x += _pi2;
+  return x;
+}
+
+double MQTT_Automation::getInclination(double jDay){
+  return _rad * (23.43929111 + (-46.8150 * jDay - 0.00059 * jDay * jDay + 0.001813 * jDay * jDay * jDay) / 3600.0);
+}
+
 
 void MQTT_Automation::ruleJSON(AUTO_RULE_STRUCT * r, JsonObject rule) {
   StaticJsonDocument<300> tmp;
@@ -683,6 +780,7 @@ void MQTT_Automation::addCondition(uint8_t type, const char name[],AUTO_RULE_STR
   if (rule->conditionCnt < AUTO_MAX_CONDITIONS) {
     uint8_t ix = rule->conditionCnt;
     rule->conditionCnt++;
+    Serial.printf("Add type %i with name %s\n",type,name);
     switch (type) {
       case AUTO_TYPE_ACS: rule->conditions[ix] = new MQTT_AutomationConditionSensor(name);
         break;
@@ -691,6 +789,8 @@ void MQTT_Automation::addCondition(uint8_t type, const char name[],AUTO_RULE_STR
       case AUTO_TYPE_ACT: rule->conditions[ix]=new MQTT_AutomationConditionTimer(name);
         break;
       case AUTO_TYPE_ACD: rule->conditions[ix]=new MQTT_AutomationConditionDate(name);
+        break;
+      case AUTO_TYPE_ACST: rule->conditions[ix]=new MQTT_AutomationConditionSunTime(name);
         break;
       default: rule->conditionCnt--;
     }

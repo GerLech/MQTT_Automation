@@ -1,4 +1,4 @@
-//Version 1.5
+//Version 1.6
 #ifndef MQTT_Automation_h
 #define MQTT_Automation_h
 
@@ -61,6 +61,7 @@ class MQTT_Automation {
   public:
     MQTT_Automation(Adafruit_ILI9341 * tft, TFTForm * conf, const GFXfont * font);
     void init();
+    void setCoordinates(double lon, double lat);
     void showConfig();
     void handleClick(int16_t x, int16_t y);
     void registerOnDone(void (*callback)());
@@ -75,9 +76,17 @@ class MQTT_Automation {
     int8_t findRule(const char rulename[]);
     String getRuleJSON(const char rulename[]);
     void mqttConfig(char cmd[], int16_t ruleId, int16_t elementId, const char data[]);
+    void calculateSun(boolean force);
+    uint16_t getSunrise();
+    uint16_t getSundown();
   private:
     void showPage();
+    double getJulianDate(uint16_t year, uint8_t month, uint8_t day);
+
     void alignText(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t alignment, String text, bool intFont);
+    double timeEquation(double &dk, double jDay);
+    double inPi(double x);
+    double getInclination(double jDay);
     void showRoundedBox(uint16_t x, uint16_t y, uint16_t w, uint16_t h, String text,AUTOSTYLE style);
     void showBox(uint16_t x, uint16_t y, uint16_t w, uint16_t h, String text, bool withoutBox, AUTOSTYLE style);
     String encodeUnicode(String text, bool intern);
@@ -104,10 +113,21 @@ class MQTT_Automation {
     uint8_t _ruleoffset;
     uint8_t _rulecount;
     uint32_t _lts = 0;
+    double _lon = 0; //longitude of the Location
+    double _lat = 0; //latidude of ther location
+    boolean _hasCoordinates = false;
+    double _julianDate = 0; //the julian date for the current sun Values
+    uint16_t _sunrise = 0; //minutes for sunrise
+    uint16_t _sundown = 0; //minutes for sundown
     Adafruit_ILI9341 * _tft;
     TFTForm * _conf;
     const GFXfont * _font;
     void(*_onDone)() = NULL;
     bool(*_onPublish)(const char * topic, const char * message) = NULL;
+    //high precise constants
+    const double _pi2 = 6.283185307179586476925286766559;
+    const double _pi = 3.1415926535897932384626433832795;
+    const double _rad = 0.017453292519943295769236907684886;
+
 };
 #endif'

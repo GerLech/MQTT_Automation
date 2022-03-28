@@ -1,7 +1,7 @@
-#include <MQTT_AutomationConditionTimer.h>
+#include <MQTT_AutomationConditionSunTime.h>
 #include <ArduinoJson.h>
 
-String propertyFormACT = "["
+String propertyFormACST = "["
   "{"
   "'name':'name',"
   "'label':'Name',"
@@ -9,39 +9,36 @@ String propertyFormACT = "["
   "'default':''"
   "},"
   "{"
-  "'name':'hour',"
-  "'label':'Stunde',"
-  "'type':'number',"
-  "'min':0,'max':23,"
-  "'default':'0'"
+  "'name':'from',"
+  "'label':'x',"
+  "'type':'select',"
+  "'options':["
+  "{'l':'von','v':'1'},"
+  "{'l':'bis','v':'0'}"
+  "]"
   "},"
   "{"
-  "'name':'minute',"
-  "'label':'Minute',"
-  "'type':'number',"
-  "'min':0,'max':59,"
-  "'default':'0'"
-  "},"
-  "{"
-  "'name':'repeat',"
-  "'label':'Wiederhole',"
-  "'type':'number',"
-  "'min':0,'max':1440,"
-  "'default':'0'"
-  "},"
-  "{"
-  "'name':'period',"
-  "'label':'Periode[min]',"
-  "'type':'number',"
-  "'min':2,'max':720,"
-  "'default':'2'"
+  "'name':'rise',"
+  "'label':'Sonne',"
+  "'type':'select',"
+  "'options':["
+  "{'l':'Aufgang','v':'1'},"
+  "{'l':'Untergang','v':'0'}"
+  "]"
   "},"
   "{"
   "'name':'duration',"
   "'label':'Dauer[min]',"
   "'type':'number',"
   "'min':0,'max':1440,"
-  "'default':'1'"
+  "'default':'0'"
+  "},"
+  "{"
+  "'name':'offset',"
+  "'label':'Versatz[min]',"
+  "'type':'number',"
+  "'min':-1440,'max':1440,"
+  "'default':'0'"
   "},"
   "{"
   "'name':'day0',"
@@ -88,27 +85,18 @@ String propertyFormACT = "["
   "]";
 
 
-MQTT_AutomationConditionTimer::MQTT_AutomationConditionTimer(const char name[]):MQTT_AutomationCondition(name) {
+MQTT_AutomationConditionSunTime::MQTT_AutomationConditionSunTime(const char name[]):MQTT_AutomationCondition(name) {
 }
 
-void MQTT_AutomationConditionTimer::update(String data){
+void MQTT_AutomationConditionSunTime::update(String data){
   Serial.println(data);
   StaticJsonDocument<300> doc;
   deserializeJson(doc,data);
-  uint16_t h = 0;
-  uint16_t m = 0;
   if (doc.containsKey("name")) strlcpy(_name,doc["name"],15);
-  if (doc.containsKey("hour")) h = doc["hour"];
-  if (doc.containsKey("minute")) m = doc["minute"];
-  if (doc.containsKey("repeat")) _repeat = doc["repeat"];
-  if (doc.containsKey("period")) _period = doc["period"];
+  if (doc.containsKey("from")) _from = (doc["from"] == "1");
+  if (doc.containsKey("rise")) _rise = (doc["rise"] == "1");
   if (doc.containsKey("duration")) _duration = doc["duration"];
-  _beginMin = h*60 + m;
-  if ((_duration == 0) || (_repeat == 0)) {
-    _endMin = 1440;
-  } else {
-    _endMin = _beginMin + _period * _repeat;
-  }
+  if (doc.containsKey("offset")) _offset = doc["offset"];
   _weekday = 0;
   uint8_t val = 1;
   uint8_t ck = 0;
@@ -125,20 +113,23 @@ void MQTT_AutomationConditionTimer::update(String data){
   Serial.println(wd);
 }
 
-String MQTT_AutomationConditionTimer::getForm(){
-    return propertyFormACT;
+String MQTT_AutomationConditionSunTime::getForm(){
+  Serial.println(propertyFormACST);
+    return propertyFormACST;
 }
 
-String MQTT_AutomationConditionTimer::getProperties(){
+String MQTT_AutomationConditionSunTime::getProperties(){
   StaticJsonDocument<300> doc;
+  String x;
   char buf[300];
   doc["name"] = _name;
-  doc["type"] = AUTO_TYPE_ACT;
-  doc["hour"] = _beginMin / 60;
-  doc["minute"] = _beginMin % 60;
-  doc["repeat"] = _repeat;
-  doc["period"] = _period;
+  doc["type"] = AUTO_TYPE_ACST;
+  x = _from?"1":"0";
+  doc["from"] = x;
+  x = _rise?"1":"0";
+  doc["rise"] = x;
   doc["duration"] = _duration;
+  doc["offset"] = _offset;
   doc["weekday"] = _weekday;
   uint8_t mask = 1;
   char key[6];
@@ -149,21 +140,27 @@ String MQTT_AutomationConditionTimer::getProperties(){
   }
   uint16_t n = serializeJson(doc, buf);
   buf[n] = 0;
+  Serial.println(buf);
   return String(buf);
 }
 
-uint8_t MQTT_AutomationConditionTimer::checkCondition(uint16_t sunrise, uint16_t sundown) {
+uint8_t MQTT_AutomationConditionSunTime::checkCondition(uint16_t sunrise, uint16_t sundown) {
   struct tm ti;
   uint8_t result = AUTO_CONDITION_INVALID;
   if(getLocalTime(&ti)){
     uint16_t minutes = ti.tm_hour * 60 + ti.tm_min;
     uint8_t mask = 1 << ti.tm_wday;
-    if (((_weekday & mask) != 0) && (minutes >= _beginMin) && (minutes < _endMin)) {
-      //we are in the time window
-      uint16_t y = (minutes -_beginMin) / _period;
-      uint16_t b = _beginMin+y*_period;
-      uint16_t e = b+_duration;
-      result = ((minutes >= b) && (minutes <e))?AUTO_CONDITION_TRUE:AUTO_CONDITION_FALSE;
+    uint16_t dur = _duration;
+    if (dur == 0) dur = 24 * 60;
+    if ((_weekday & mask) != 0) {
+      int16_t onTime = _rise?sunrise:sundown;
+      onTime += _offset;
+      int16_t offTime = onTime;
+      if (_from) offTime += _duration; else onTime -= dur;
+      if (onTime < 0) onTime = 0;
+      result = ((minutes >= onTime) && (minutes < offTime))?AUTO_CONDITION_TRUE:AUTO_CONDITION_FALSE;
+    } else {
+      result = AUTO_CONDITION_FALSE;
     }
   }
   return result;
